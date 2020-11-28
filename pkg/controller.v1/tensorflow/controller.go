@@ -23,7 +23,7 @@ import (
 
 	kubebatchclient "github.com/kubernetes-sigs/kube-batch/pkg/client/clientset/versioned"
 	log "github.com/sirupsen/logrus"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -57,6 +57,7 @@ const (
 	labelGroupName      = "group-name"
 	labelTFJobName      = "tf-job-name"
 	labelTFJobRole      = "tf-job-role"
+	annotationQueue     = "kube-queue"
 )
 
 var (
@@ -255,6 +256,15 @@ func (tc *TFController) processNextWorkItem() bool {
 		}
 
 		return true
+	}
+
+	// Wait until queueing annotation is removed
+	if tfJob.Annotations != nil {
+		if _, exist := tfJob.Annotations[annotationQueue]; exist {
+			infoMsg := fmt.Sprintf("Annotation %s is found, operator will not process until removed", annotationQueue)
+			tflogger.LoggerForKey(key).Info(infoMsg)
+			return true
+		}
 	}
 
 	// Sync TFJob to match the actual state to this desired state.
