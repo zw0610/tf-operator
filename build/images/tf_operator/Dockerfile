@@ -1,27 +1,19 @@
-FROM registry.access.redhat.com/ubi8-dev-preview/ubi:latest
+FROM golang:1.13.5 AS build-image
 
-ARG GOLANG_VERSION=1.8.3
-ENV GOROOT=/usr/local/go PATH=$PATH:/usr/local/go/bin
+ADD . /go/src/github.com/kubeflow/tf-operator
 
-RUN if [ "$(uname -m)" = "ppc64le" ]; then \
-        curl -fksSL https://dl.google.com/go/go$GOLANG_VERSION.linux-ppc64le.tar.gz | tar -xz -C /usr/local/; \
+WORKDIR /go/src/github.com/kubeflow/tf-operator
+
+RUN if [ "$(uname -m)" = "aarch64" ]; then \
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o tf-operator.v1 ./cmd/tf-operator.v1; \
     else \
-        curl -fksSL https://dl.google.com/go/go$GOLANG_VERSION.linux-amd64.tar.gz | tar -xz -C /usr/local/; \
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o tf-operator.v1 ./cmd/tf-operator.v1; \
     fi
 
-# TODO(jlewi): We should probably change the directory to /opt/kubeflow.
-RUN mkdir -p /opt/tensorflow_k8s/dashboard/
-RUN mkdir -p /opt/kubeflow/samples
+FROM debian:stable-slim
 
-COPY tf_smoke.py /opt/kubeflow/samples/
-RUN chmod a+x /opt/kubeflow/samples/*
-COPY tf-operator.v1beta2 /opt/kubeflow
-COPY tf-operator.v1 /opt/kubeflow
-COPY backend /opt/tensorflow_k8s/dashboard/
-COPY build /opt/tensorflow_k8s/dashboard/frontend/build
+COPY vendor /opt/
 
-RUN chmod a+x /opt/kubeflow/tf-operator.v1beta2
-RUN chmod a+x /opt/kubeflow/tf-operator.v1
-RUN chmod a+x /opt/tensorflow_k8s/dashboard/backend
+COPY --from=build-image /go/src/github.com/kubeflow/tf-operator/tf-operator.v1 /opt/
 
-ENTRYPOINT ["/opt/kubeflow/tf-operator.v1"]
+ENTRYPOINT ["/opt/tf-operator.v1"]

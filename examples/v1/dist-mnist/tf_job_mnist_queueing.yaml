@@ -13,6 +13,14 @@ spec:
           containers:
             - name: tensorflow
               image: kubeflow/tf-dist-mnist-test:1.0
+              resources:
+                requests:
+                  cpu: 2
+                  memory: 2Gi
+                limits:
+                  cpu: 2
+                  memory: 2Gi
+
     Worker:
       replicas: 4
       restartPolicy: Never
@@ -20,4 +28,11 @@ spec:
         spec:
           containers:
             - name: tensorflow
-              image: kubeflow/tf-dist-mnist-test:1.0
+              image: kubeflow/tfkub-dist-mnist-test:1.0
+              resources:
+                requests:
+                  cpu: 2
+                  memory: 2Gi
+                limits:
+                  cpu: 2
+                  memory: 2Gi
