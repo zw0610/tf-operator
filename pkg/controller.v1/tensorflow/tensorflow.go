@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -82,11 +83,14 @@ func genTFConfigJSONStr(tfjob *tfv1.TFJob, rtype, index string) (string, error) 
 		return "", err
 	}
 
-	tfConfig := TFConfig{
+	realRType, base := indexBase(tfjob, rtype)
+	updatedIndex := base + int(i)
+
+	tfConfigInstance := TFConfig{
 		Cluster: cluster,
 		Task: TaskSpec{
-			Type:  rtype,
-			Index: int(i),
+			Type:  realRType,
+			Index: updatedIndex,
 		},
 		// We need to set environment to cloud  otherwise it will default to local which isn't what we want.
 		// Environment is used by tensorflow.contrib.learn.python.learn in versions <= 1.3
@@ -94,12 +98,60 @@ func genTFConfigJSONStr(tfjob *tfv1.TFJob, rtype, index string) (string, error) 
 		Environment: "cloud",
 	}
 
-	tfConfigJSONStr, err := json.Marshal(tfConfig)
+	tfConfigJSONStr, err := json.Marshal(tfConfigInstance)
 	if err != nil {
 		return "", err
 	}
 
 	return string(tfConfigJSONStr), nil
+}
+
+func indexBase(tfjob *tfv1.TFJob, rtype string) (string, int) {
+	keywordWorker := strings.ToLower(string(tfv1.TFReplicaTypeWorker))
+	keywordPS := strings.ToLower(string(tfv1.TFReplicaTypePS))
+
+	rtypeMap := map[string]tfv1.TFReplicaType{}
+	for k := range tfjob.Spec.TFReplicaSpecs {
+		rtypeMap[strings.ToLower(string(k))] = k
+	}
+
+	genericReplicaType := ""
+
+	if strings.Contains(rtype, keywordWorker) {
+		genericReplicaType = keywordWorker
+	}
+	if strings.Contains(rtype, keywordPS) {
+		genericReplicaType = keywordPS
+	}
+
+	if genericReplicaType == "" {
+		return rtype, 0
+	}
+
+	var typeList []string = nil
+	for replicaType := range tfjob.Spec.TFReplicaSpecs {
+		tfType := strings.ToLower(string(replicaType))
+		if strings.Contains(tfType, genericReplicaType) {
+			typeList = append(typeList, tfType)
+		}
+	}
+
+	if len(typeList) < 2 {
+		return genericReplicaType, 0
+	}
+
+	sort.Strings(typeList)
+
+	base := 0
+	for _, key := range typeList {
+		if key == rtype {
+			break
+		}
+		tfReplicaType := rtypeMap[key]
+		base = base + int(*tfjob.Spec.TFReplicaSpecs[tfReplicaType].Replicas)
+	}
+
+	return genericReplicaType, base
 }
 
 // genClusterSpec will generate ClusterSpec.
@@ -138,5 +190,33 @@ func genClusterSpec(tfjob *tfv1.TFJob) (ClusterSpec, error) {
 		clusterSpec[rt] = replicaNames
 	}
 
+	mergeClusterSpec(clusterSpec)
+
 	return clusterSpec, nil
+}
+
+func mergeClusterSpec(cs ClusterSpec) {
+	keyWorker := strings.ToLower(string(tfv1.TFReplicaTypeWorker))
+	keyPS := strings.ToLower(string(tfv1.TFReplicaTypePS))
+
+	var totalWorker []string = nil
+	var totalPS []string = nil
+
+	for key, val := range cs {
+		if strings.Contains(key, keyWorker) {
+			for _, item := range val {
+				totalWorker = append(totalWorker, item)
+			}
+			delete(cs, key)
+		}
+		if strings.Contains(key, keyPS) {
+			for _, item := range val {
+				totalPS = append(totalPS, item)
+			}
+			delete(cs, key)
+		}
+	}
+
+	cs[keyWorker] = totalWorker
+	cs[keyPS] = totalPS
 }
